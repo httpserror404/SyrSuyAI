@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI-HydroSpace Сырдария / Кызылорда</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body{margin:0;font-family:'Segoe UI', Tahoma, sans-serif;background:#eef6f9;color:#333}
+header{background:#0077b6;color:#fff;padding:20px;text-align:center;box-shadow: 0 2px 10px rgba(0,0,0,0.1)}
+main{max-width:1300px;margin:20px auto;padding:15px}
+.card{background:#fff;border-radius:12px;padding:20px;margin-bottom:20px;box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px}
+#map{height:500px;border-radius:10px; z-index: 1;}
+.status{padding:6px 14px;border-radius:20px;color:#fff;display:inline-block;font-weight:bold;font-size:14px}
+.normal{background:#2ecc71}
+.warning{background:#f39c12}
+.high{background:#e74c3c} /* Исправлено: теперь это класс */
+
+#ratingList{padding:0; list-style:none}
+#ratingList li{padding:8px 0; border-bottom:1px solid #eee}
+#ratingList li:last-child{border:0}
+
+select,button{padding:10px;font-size:16px;border-radius:8px;border:1px solid #ddd; outline:none}
+button{background:#00b4d8;color:#fff;width:100%;cursor:pointer;border:none;transition:0.3s}
+button:hover{background:#0096c7; transform: translateY(-2px)}
+canvas{max-height:250px}
+#aiTip {font-style: italic; color: #555; border-left: 4px solid #00b4d8; padding-left: 15px}
+</style>
+</head>
+
+<body>
+
+<header>
+<h1 style="margin:0">🌊 AI-HydroSpace Сырдария</h1>
+<p id="subtitle" style="margin:10px 0"></p>
+<select id="lang" onchange="setLang()">
+<option value="ru">Русский</option>
+<option value="kz">Қазақша</option>
+<option value="en">English</option>
+</select>
+</header>
+
+<main>
+
+<div class="grid">
+<div class="card">
+<h3 id="lvlTitle"></h3>
+<div id="waterLevel" style="font-size:38px;font-weight:bold; color:#0077b6">--</div>
+<div id="status" class="status"></div>
+</div>
+
+<div class="card">
+<h3 id="ratingTitle"></h3>
+<ul id="ratingList"></ul>
+</div>
+</div>
+
+<div class="card">
+<h3 id="mapTitle"></h3>
+<div id="map"></div>
+</div>
+
+<div class="grid">
+<div class="card">
+<h3 id="chart1Title"></h3>
+<canvas id="depthChart"></canvas>
+</div>
+
+<div class="card">
+<h3 id="chart2Title"></h3>
+<canvas id="volumeChart"></canvas>
+</div>
+
+<div class="card">
+<h3 id="chart3Title"></h3>
+<canvas id="qualityChart"></canvas>
+</div>
+</div>
+
+<div class="card">
+<h3 id="aiTitle"></h3>
+<p id="aiTip"></p>
+</div>
+
+<button onclick="updateData()" id="btn"></button>
+
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+const T={
+ru:{sub:"Мониторинг Сырдарии и водных ресурсов",lvl:"Средний уровень воды",map:"Спутниковая карта и проблемные зоны",rating:"Рейтинг риска зон",c1:"Глубина (м)",c2:"Объём (м³)",c3:"Чистота (%)",ai:"AI-анализ состояния",btn:"🔄 Обновить данные",norm:"Норма",risk:"Внимание: риск",high:"Критический уровень",aiGood:"В целом ресурсы в норме. Вмешательство не требуется.",aiBad:"Обнаружены зоны высокого риска. Рекомендуется проверка шлюзов."},
+kz:{sub:"Сырдария мен су ресурстарын бақылау",lvl:"Орташа су деңгейі",map:"Спутниктік карта және мәселелер",rating:"Мәселелі аймақтар рейтингі",c1:"Тереңдігі (м)",c2:"Су көлемі (м³)",c3:"Судың тазалығы (%)",ai:"AI талдау",btn:"🔄 Жаңарту",norm:"Қалыпты",risk:"Қауіп бар",high:"Сыналатын деңгей",aiGood:"Жалпы жағдай қалыпты.",aiBad:"Жоғары қауіп аймақтары бар."},
+en:{sub:"Syr Darya & Water Resource Monitoring",lvl:"Average water level",map:"Satellite map & problem zones",rating:"Risk rating by zones",c1:"Depth (m)",c2:"Volume (m³)",c3:"Quality (%)",ai:"AI Health Analysis",btn:"🔄 Update data",norm:"Normal",risk:"Warning: risk",high:"Critical level",aiGood:"Overall resources are stable. No action needed.",aiBad:"High-risk zones detected. Check water flow regulators."}
+};
+
+let lang="ru";
+function setLang(){
+lang=document.getElementById("lang").value;
+const d = T[lang];
+subtitle.textContent=d.sub;
+lvlTitle.textContent=d.lvl;
+mapTitle.textContent=d.map;
+ratingTitle.textContent=d.rating;
+chart1Title.textContent=d.c1;
+chart2Title.textContent=d.c2;
+chart3Title.textContent=d.c3;
+aiTitle.textContent=d.ai;
+btn.textContent=d.btn;
+updateData();
+}
+
+const osm=L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
+const sat=L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}");
+const map=L.map("map",{center:[44.9,65.4],zoom:9,layers:[osm]});
+L.control.layers({"Карта":osm,"Спутник":sat}).addTo(map);
+let layers=[];
+
+let dChart,vChart,qChart;
+
+function updateData(){
+layers.forEach(l=>map.removeLayer(l));
+layers=[];
+
+const water=(2+Math.random()*2).toFixed(2);
+waterLevel.textContent=water+" m";
+
+// Исправлена логика классов статуса
+const st = document.getElementById("status");
+st.className = "status"; 
+if(water < 2.3) { st.textContent=T[lang].high; st.classList.add("high"); }
+else if(water < 2.7) { st.textContent=T[lang].risk; st.classList.add("warning"); }
+else { st.textContent=T[lang].norm; st.classList.add("normal"); }
+
+const zones=[
+{lat:44.99,lng:65.22,name:"Сырдария Русло",depth:1.7,clean:55,area:200},
+{lat:44.78,lng:65.35,name:"Южный Канал",depth:2.1,clean:72,area:150},
+{lat:44.85,lng:65.65,name:"Поле Восток",depth:2.6,clean:83,area:90},
+{lat:44.92,lng:65.42,name:"Канал Север",depth:3.2,clean:90,area:210}
+];
+
+zones.forEach(z=>z.score=Math.round((3-z.depth/2)*30 + (100-z.clean)*.4 + (500/z.area)));
+zones.sort((a,b)=>b.score-a.score);
+
+ratingList.innerHTML="";
+zones.forEach(z=>ratingList.innerHTML+=`<li><b>${z.name}</b>: <span style="color:${z.score>60?'red':'inherit'}">${z.score} pts</span></li>`);
+
+let labels=[],depths=[],volumes=[],quality=[];
+zones.forEach(z=>{
+labels.push(z.name);
+depths.push(z.depth);
+quality.push(z.clean);
+volumes.push(Math.round(z.area*z.depth*500));
+
+let color=z.score>70?"#e74c3c":z.score>50?"#f39c12":"#2ecc71";
+const popup=`<b>${z.name}</b><br>📏 ${z.depth} m<br>🧪 ${z.clean}% quality`;
+
+layers.push(L.circle([z.lat,z.lng],{radius:2000,color,fillColor:color,fillOpacity:.5}).addTo(map).bindPopup(popup));
+});
+
+/* Обновление графиков с добавлением цветов */
+[dChart,vChart,qChart].forEach(c=>c&&c.destroy());
+
+dChart=new Chart(depthChart,{type:"bar",data:{labels,datasets:[{label:T[lang].c1, data:depths, backgroundColor:'#00b4d8'}]}});
+vChart=new Chart(volumeChart,{type:"line",data:{labels,datasets:[{label:T[lang].c2, data:volumes, borderColor:'#0077b6', tension:0.3}]}});
+qChart=new Chart(qualityChart,{type:"doughnut",data:{labels,datasets:[{data:quality, backgroundColor:['#e74c3c','#f39c12','#2ecc71','#3498db']}]}});
+
+aiTip.textContent=zones[0].score>60?T[lang].aiBad:T[lang].aiGood;
+}
+
+setLang();
+</script>
+
+</body>
+</html>
